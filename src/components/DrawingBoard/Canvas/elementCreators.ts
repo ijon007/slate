@@ -137,7 +137,7 @@ export function createTextElement(
     type: "text",
     x: position.x,
     y: position.y,
-    text: "Text",
+    text: "",
     fontSize,
     fontFamily,
     width: 100,
@@ -151,6 +151,7 @@ export function createTextElement(
     fillPattern: DEFAULT_FILL_PATTERN,
     sloppiness: DEFAULT_SLOPPINESS,
     edgeRounding: DEFAULT_EDGE_ROUNDING,
+    textAlign: "left",
   };
 }
 

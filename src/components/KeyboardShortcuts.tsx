@@ -53,6 +53,7 @@ export function KeyboardShortcuts() {
     canRedo,
     resetCanvas,
     addNote,
+    canvasLocked,
   } = useStore();
 
   const [showHelp, setShowHelp] = useState(false);
@@ -78,83 +79,86 @@ export function KeyboardShortcuts() {
         return;
       }
 
-      // Tool shortcuts
-      if (e.key === "v" || e.key === "V") {
-        e.preventDefault();
-        setSelectedTool("selection");
-        return;
-      }
-      if (e.key === "r" || e.key === "R") {
-        e.preventDefault();
-        setSelectedTool("rectangle");
-        return;
-      }
-      if (e.key === "c" || e.key === "C") {
-        e.preventDefault();
-        setSelectedTool("circle");
-        return;
-      }
-      if (e.key === "a" || e.key === "A") {
-        e.preventDefault();
-        setSelectedTool("arrow");
-        return;
-      }
-      if (e.key === "l" || e.key === "L") {
-        e.preventDefault();
-        setSelectedTool("line");
-        return;
-      }
-      if (e.key === "t" || e.key === "T") {
-        e.preventDefault();
-        setSelectedTool("text");
-        return;
-      }
-      if (e.key === "f" || e.key === "F") {
-        e.preventDefault();
-        setSelectedTool("freehand");
-        return;
-      }
-
-      // Action shortcuts
-      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
-        e.preventDefault();
-        if (canUndo()) undo();
-        return;
-      }
-      if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z") && e.shiftKey) {
-        e.preventDefault();
-        if (canRedo()) redo();
-        return;
-      }
-      if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedElementIds.length > 0) {
+      // Prevent tool shortcuts and actions when canvas is locked
+      if (!canvasLocked) {
+        // Tool shortcuts
+        if (e.key === "v" || e.key === "V") {
           e.preventDefault();
-          deleteElements(selectedElementIds);
+          setSelectedTool("selection");
+          return;
         }
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setSelectedElementIds([]);
-        return;
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "a") {
-        e.preventDefault();
-        // Select all elements
-        const { elements } = useStore.getState();
-        setSelectedElementIds(elements.map((el) => el.id));
-        return;
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "d") {
-        e.preventDefault();
-        // Duplicate selected elements (simplified - just copy IDs for now)
-        // Full implementation would create new elements
-        return;
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === "0") {
-        e.preventDefault();
-        resetCanvas();
-        return;
+        if (e.key === "r" || e.key === "R") {
+          e.preventDefault();
+          setSelectedTool("rectangle");
+          return;
+        }
+        if (e.key === "c" || e.key === "C") {
+          e.preventDefault();
+          setSelectedTool("circle");
+          return;
+        }
+        if (e.key === "a" || e.key === "A") {
+          e.preventDefault();
+          setSelectedTool("arrow");
+          return;
+        }
+        if (e.key === "l" || e.key === "L") {
+          e.preventDefault();
+          setSelectedTool("line");
+          return;
+        }
+        if (e.key === "t" || e.key === "T") {
+          e.preventDefault();
+          setSelectedTool("text");
+          return;
+        }
+        if (e.key === "f" || e.key === "F") {
+          e.preventDefault();
+          setSelectedTool("freehand");
+          return;
+        }
+
+        // Action shortcuts
+        if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
+          e.preventDefault();
+          if (canUndo()) undo();
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z") && e.shiftKey) {
+          e.preventDefault();
+          if (canRedo()) redo();
+          return;
+        }
+        if (e.key === "Delete" || e.key === "Backspace") {
+          if (selectedElementIds.length > 0) {
+            e.preventDefault();
+            deleteElements(selectedElementIds);
+          }
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setSelectedElementIds([]);
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key === "a") {
+          e.preventDefault();
+          // Select all elements
+          const { elements } = useStore.getState();
+          setSelectedElementIds(elements.map((el) => el.id));
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key === "d") {
+          e.preventDefault();
+          // Duplicate selected elements (simplified - just copy IDs for now)
+          // Full implementation would create new elements
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key === "0") {
+          e.preventDefault();
+          resetCanvas();
+          return;
+        }
       }
 
       // Help shortcut
@@ -178,6 +182,7 @@ export function KeyboardShortcuts() {
     canUndo,
     canRedo,
     resetCanvas,
+    canvasLocked,
   ]);
 
   return (

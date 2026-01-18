@@ -37,6 +37,7 @@ export function Canvas() {
     fillColor,
     canvasBackgroundColorDark,
     canvasBackgroundColorLight,
+    canvasLocked,
   } = useStore();
 
   const [drawingState, setDrawingState] = useState<DrawingState>({
@@ -55,6 +56,9 @@ export function Canvas() {
     boxSelectionEnd: null,
     boxSelectionShiftKey: false,
   });
+
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const textInputRef = useRef<HTMLInputElement>(null);
 
   // Track theme state to trigger redraws
   const [isDarkTheme, setIsDarkTheme] = useState(() => {
@@ -177,8 +181,12 @@ export function Canvas() {
     // Draw grid background
     drawGrid(ctx, canvas.width, canvas.height);
 
-    // Draw all elements
+    // Draw all elements (skip text element that's being edited)
     elements.forEach((element) => {
+      if (element.type === "text" && element.id === editingTextId) {
+        // Skip rendering text element when it's being edited
+        return;
+      }
       drawElement(ctx, element);
     });
 
@@ -199,7 +207,7 @@ export function Canvas() {
     if (drawingState.isBoxSelecting && drawingState.boxSelectionStart && drawingState.boxSelectionEnd) {
       drawBoxSelection(ctx, drawingState.boxSelectionStart, drawingState.boxSelectionEnd);
     }
-  }, [elements, selectedElementIds, drawingState.currentElement, drawingState.isBoxSelecting, drawingState.boxSelectionStart, drawingState.boxSelectionEnd, drawElement, drawHandles, canvasBackgroundColorDark, canvasBackgroundColorLight, isDarkTheme, drawGrid, drawBoxSelection]);
+  }, [elements, selectedElementIds, drawingState.currentElement, drawingState.isBoxSelecting, drawingState.boxSelectionStart, drawingState.boxSelectionEnd, drawElement, drawHandles, canvasBackgroundColorDark, canvasBackgroundColorLight, isDarkTheme, drawGrid, drawBoxSelection, editingTextId]);
 
   // Watch for theme changes and update state
   useEffect(() => {
@@ -276,6 +284,8 @@ export function Canvas() {
       updateElement,
       setSelectedElementIds,
       setOffset,
+      canvasLocked,
+      setEditingTextId,
     }),
     [
       getMousePoint,
@@ -292,13 +302,84 @@ export function Canvas() {
       updateElement,
       setSelectedElementIds,
       setOffset,
+      canvasLocked,
+      setEditingTextId,
     ]
   );
 
-  const { handleMouseDown, handleMouseMove, handleMouseUp } = mouseHandlers;
+  const { handleMouseDown, handleMouseMove, handleMouseUp, handleDoubleClick } = mouseHandlers;
+
+  // Focus text input when editing starts
+  useEffect(() => {
+    if (editingTextId && textInputRef.current) {
+      // Small delay to ensure DOM is updated
+      const timeoutId = setTimeout(() => {
+        if (textInputRef.current) {
+          textInputRef.current.focus();
+          textInputRef.current.select();
+        }
+      }, 10);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [editingTextId]);
+
+  // Get the text element being edited
+  const editingTextElement = useMemo(() => {
+    if (!editingTextId) return null;
+    const element = elements.find((el) => el.id === editingTextId && el.type === "text");
+    return element?.type === "text" ? element : null;
+  }, [editingTextId, elements]);
+
+  // Calculate text dimensions based on content
+  const calculateTextDimensions = useCallback((text: string, fontSize: number, fontFamily: string) => {
+    if (!canvasRef.current) return { width: 100 / canvasState.zoom, height: fontSize };
+    
+    const ctx = canvasRef.current.getContext("2d");
+    if (!ctx) return { width: 100 / canvasState.zoom, height: fontSize };
+    
+    ctx.font = `${fontSize}px ${fontFamily}`;
+    const metrics = ctx.measureText(text || " ");
+    const textWidth = metrics.width;
+    
+    // Padding equivalent to p-1 (4px) but in world coordinates
+    const padding = 4 / canvasState.zoom; // 4px padding in world coordinates
+    const minWidth = 100 / canvasState.zoom; // Minimum width in world coordinates
+    
+    return {
+      width: Math.max(minWidth, textWidth / canvasState.zoom + padding * 2),
+      height: fontSize,
+    };
+  }, [canvasState.zoom]);
+
+  // Handle text input changes
+  const handleTextChange = (value: string) => {
+    if (editingTextId && editingTextElement && editingTextElement.type === "text") {
+      const dimensions = calculateTextDimensions(value, editingTextElement.fontSize, editingTextElement.fontFamily);
+      updateElement(editingTextId, { 
+        text: value,
+        width: dimensions.width,
+        height: dimensions.height,
+      });
+    }
+  };
+
+  // Handle text input blur/enter
+  const handleTextBlur = () => {
+    setEditingTextId(null);
+  };
+
+  const handleTextKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      setEditingTextId(null);
+    } else if (e.key === "Escape") {
+      setEditingTextId(null);
+    }
+  };
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
+    if (canvasLocked) return;
     const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
     const newZoom = Math.max(
       MIN_ZOOM,
@@ -306,6 +387,46 @@ export function Canvas() {
     );
     setZoom(newZoom);
   };
+
+  // Calculate input position and size to match text element bounds
+  const inputBounds = useMemo(() => {
+    if (!editingTextElement || editingTextElement.type !== "text" || !canvasRef.current || !containerRef.current) return null;
+    
+    // Get bounds in world coordinates - use the same logic as selection handles
+    const bounds = {
+      minX: editingTextElement.x,
+      minY: editingTextElement.y,
+      maxX: editingTextElement.x + editingTextElement.width,
+      maxY: editingTextElement.y + editingTextElement.height,
+    };
+    
+    // Convert to screen coordinates (relative to canvas)
+    const minScreen = getScreenPoint({ x: bounds.minX, y: bounds.minY });
+    const maxScreen = getScreenPoint({ x: bounds.maxX, y: bounds.maxY });
+    
+    // Calculate screen rectangle dimensions (same as selection handles)
+    const x = Math.min(minScreen.x, maxScreen.x);
+    const y = Math.min(minScreen.y, maxScreen.y);
+    const width = Math.abs(maxScreen.x - minScreen.x);
+    const height = Math.abs(maxScreen.y - minScreen.y);
+    
+    // Since both canvas and input are absolutely positioned in the same container,
+    // and canvas uses inset-0, coordinates should be relative to container
+    // But we need to ensure we're using the correct reference
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const containerRect = containerRef.current.getBoundingClientRect();
+    
+    // Calculate offset from container to canvas (should be 0,0 if canvas is inset-0)
+    const offsetX = canvasRect.left - containerRect.left;
+    const offsetY = canvasRect.top - containerRect.top;
+    
+    return {
+      left: Math.round(x + offsetX),
+      top: Math.round(y + offsetY),
+      width: Math.max(Math.round(width), 100),
+      height: Math.max(Math.round(height), editingTextElement.fontSize),
+    };
+  }, [editingTextElement, getScreenPoint, canvasState.zoom, canvasState.offsetX, canvasState.offsetY]);
 
   return (
     <div
@@ -316,13 +437,59 @@ export function Canvas() {
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full cursor-crosshair"
-        onMouseDown={handleMouseDown}
+        onMouseDown={(e) => {
+          if (!editingTextId) {
+            handleMouseDown(e);
+          }
+        }}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        style={{ touchAction: "none" }}
+        onDoubleClick={handleDoubleClick}
+        style={{ touchAction: "none", pointerEvents: editingTextId ? "none" : "auto" }}
         aria-label="Drawing canvas"
       />
+      {editingTextElement && editingTextElement.type === "text" && inputBounds && (
+        <input
+          ref={textInputRef}
+          type="text"
+          value={editingTextElement.text}
+          onChange={(e) => {
+            handleTextChange(e.target.value);
+          }}
+          onBlur={handleTextBlur}
+          onKeyDown={handleTextKeyDown}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+          placeholder="Type here..."
+          style={{
+            position: "absolute",
+            left: `${inputBounds.left}px`,
+            top: `${inputBounds.top}px`,
+            width: `${inputBounds.width}px`,
+            height: `${inputBounds.height}px`,
+            fontFamily: `"${editingTextElement.fontFamily}", cursive`,
+            fontSize: `${editingTextElement.fontSize}px`,
+            color: editingTextElement.strokeColor || "#FFFFFF",
+            backgroundColor: "transparent",
+            border: "none",
+            padding: "0",
+            margin: "0",
+            outline: "none",
+            zIndex: 1000,
+            pointerEvents: "auto",
+            caretColor: editingTextElement.strokeColor || "#FFFFFF",
+            lineHeight: `${editingTextElement.fontSize}px`,
+            boxSizing: "border-box",
+            textAlign: (editingTextElement.textAlign || "left") as "left" | "center" | "right",
+            display: "block",
+          }}
+        />
+      )}
     </div>
   );
 }

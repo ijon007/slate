@@ -225,13 +225,34 @@ export function createElementRenderer({ getScreenPoint }: ElementRendererProps) 
       }
       case "text": {
         // Round coordinates to prevent sub-pixel rendering issues
+        const screenEnd = getScreenPoint({
+          x: element.x + element.width,
+          y: element.y + element.height,
+        });
         const x = Math.round(screenPoint.x);
         const y = Math.round(screenPoint.y + element.fontSize);
+        const width = Math.abs(screenEnd.x - screenPoint.x);
+        
         ctx.font = `${element.fontSize}px ${element.fontFamily}`;
         ctx.fillStyle = element.strokeColor;
         ctx.globalAlpha = element.opacity;
-        ctx.fillText(element.text, x, y);
+        
+        // Set text alignment
+        const textAlign = element.textAlign || "left";
+        ctx.textAlign = textAlign;
+        ctx.textBaseline = "top";
+        
+        // Calculate x position based on alignment
+        let textX = x;
+        if (textAlign === "center") {
+          textX = x + width / 2;
+        } else if (textAlign === "right") {
+          textX = x + width;
+        }
+        
+        ctx.fillText(element.text, textX, y);
         ctx.globalAlpha = 1;
+        ctx.textAlign = "left"; // Reset to default
         break;
       }
       case "freehand": {

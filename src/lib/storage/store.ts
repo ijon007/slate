@@ -28,6 +28,7 @@ interface AppState {
   fillColor: string;
   canvasBackgroundColorDark: string;
   canvasBackgroundColorLight: string;
+  canvasLocked: boolean;
 
   // Notes state
   notes: Note[];
@@ -45,6 +46,7 @@ interface AppState {
   setFillColor: (color: string) => void;
   setCanvasBackgroundColorDark: (color: string) => void;
   setCanvasBackgroundColorLight: (color: string) => void;
+  setCanvasLocked: (locked: boolean) => void;
 
   // Canvas actions
   setZoom: (zoom: number) => void;
@@ -86,6 +88,7 @@ export const useStore = create<AppState>()(
       fillColor: DEFAULT_FILL_COLOR,
       canvasBackgroundColorDark: "#0a0a0a", // Original darker background
       canvasBackgroundColorLight: "#ffffff", // Default light background
+      canvasLocked: false,
       notes: [],
 
       // Drawing actions
@@ -155,6 +158,10 @@ export const useStore = create<AppState>()(
 
       setCanvasBackgroundColorLight: (color) => {
         set({ canvasBackgroundColorLight: color });
+      },
+
+      setCanvasLocked: (locked) => {
+        set({ canvasLocked: locked });
       },
 
       // Canvas actions

@@ -72,6 +72,7 @@ export interface TextElement extends BaseElement {
   fontFamily: string;
   width: number;
   height: number;
+  textAlign?: "left" | "center" | "right";
 }
 
 export interface FreehandElement extends BaseElement {

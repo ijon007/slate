@@ -47,7 +47,7 @@ export function CanvasBackgroundColorPicker({ effectiveTheme }: CanvasBackground
           <button
             key={bg.color}
             className={cn(
-              "size-9 rounded border-2 transition-all",
+              "size-9 rounded-md border-2 transition-all",
               currentCanvasBackgroundColor === bg.color
                 ? "border-primary scale-110"
                 : "border-border hover:scale-105"

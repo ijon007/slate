@@ -10,8 +10,11 @@ import {
   LineSegment,
   TextT,
   PencilSimple,
+  Lock,
+  LockOpen,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
+import { Separator } from "../ui/separator";
 
 const tools: Array<{ type: ToolType; label: string; icon: React.ComponentType<any> }> = [
   { type: "selection", label: "Selection", icon: Cursor },
@@ -24,7 +27,7 @@ const tools: Array<{ type: ToolType; label: string; icon: React.ComponentType<an
 ];
 
 export function Toolbar() {
-  const { selectedTool, setSelectedTool } = useStore();
+  const { selectedTool, setSelectedTool, canvasLocked, setCanvasLocked } = useStore();
 
   return (
     <div
@@ -32,6 +35,27 @@ export function Toolbar() {
       role="toolbar"
       aria-label="Drawing tools"
     >
+      <Button
+        variant={canvasLocked ? "default" : "ghost"}
+        size="icon"
+        onClick={() => setCanvasLocked(!canvasLocked)}
+        className={cn(
+          "relative",
+          canvasLocked && "bg-primary text-primary-foreground"
+        )}
+        aria-label={canvasLocked ? "Unlock canvas" : "Lock canvas"}
+        aria-pressed={canvasLocked}
+        title={canvasLocked ? "Unlock canvas" : "Lock canvas"}
+      >
+        {canvasLocked ? (
+          <Lock className="size-4" />
+        ) : (
+          <LockOpen className="size-4" />
+        )}
+      </Button>
+
+      <Separator orientation="vertical" />
+      
       {tools.map((tool) => {
         const Icon = tool.icon;
         const isActive = selectedTool === tool.type;
@@ -43,6 +67,7 @@ export function Toolbar() {
             variant={isActive ? "default" : "ghost"}
             size="icon"
             onClick={() => setSelectedTool(tool.type)}
+            disabled={canvasLocked}
             className={cn(
               "relative",
               isActive && "bg-primary text-primary-foreground"
@@ -51,7 +76,7 @@ export function Toolbar() {
             aria-pressed={isActive}
             title={`${tool.label} (${shortcut})`}
           >
-            <Icon className="size-4" />
+            <Icon className="size-4"/>
             <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[10px] text-muted-foreground whitespace-nowrap">
               {shortcut}
             </span>

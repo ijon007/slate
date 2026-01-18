@@ -4,7 +4,7 @@ export const DEFAULT_STROKE_COLOR = "#FFFFFF";
 export const DEFAULT_FILL_COLOR = "#FFFFFF";
 export const DEFAULT_STROKE_WIDTH = 2;
 export const DEFAULT_FONT_SIZE = 24;
-export const DEFAULT_FONT_FAMILY = "Inter";
+export const DEFAULT_FONT_FAMILY = "Kalam";
 
 export const MIN_STROKE_WIDTH = 1;
 export const MAX_STROKE_WIDTH = 20;

@@ -41,6 +41,8 @@ interface MouseHandlersParams {
   updateElement: (id: string, updates: Partial<DrawingElement>) => void;
   setSelectedElementIds: (ids: string[]) => void;
   setOffset: (x: number, y: number) => void;
+  canvasLocked: boolean;
+  setEditingTextId: (id: string | null) => void;
 }
 
 export function createMouseHandlers({
@@ -59,8 +61,12 @@ export function createMouseHandlers({
   updateElement,
   setSelectedElementIds,
   setOffset,
+  canvasLocked,
+  setEditingTextId,
 }: MouseHandlersParams) {
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (canvasLocked) return;
+    
     const point = getMousePoint(e);
     const worldPoint = getWorldPoint(point);
 
@@ -177,6 +183,7 @@ export function createMouseHandlers({
       );
       addElement(newTextElement);
       setSelectedElementIds([id]);
+      setEditingTextId(id);
     } else {
       // Start drawing
       setDrawingState({
@@ -188,6 +195,8 @@ export function createMouseHandlers({
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (canvasLocked && !drawingState.isPanning) return;
+    
     const point = getMousePoint(e);
     const worldPoint = getWorldPoint(point);
 
@@ -443,7 +452,30 @@ export function createMouseHandlers({
     }
   };
 
-  return { handleMouseDown, handleMouseMove, handleMouseUp };
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (canvasLocked) return;
+    
+    const point = getMousePoint(e);
+    const worldPoint = getWorldPoint(point);
+
+    // Check if double-clicking on a text element
+    if (selectedTool === "selection" || selectedTool === "text") {
+      let clickedElement: DrawingElement | null = null;
+      for (let i = elements.length - 1; i >= 0; i--) {
+        if (elements[i].type === "text" && isPointInElement(worldPoint, elements[i])) {
+          clickedElement = elements[i];
+          break;
+        }
+      }
+
+      if (clickedElement && clickedElement.type === "text") {
+        setSelectedElementIds([clickedElement.id]);
+        setEditingTextId(clickedElement.id);
+      }
+    }
+  };
+
+  return { handleMouseDown, handleMouseMove, handleMouseUp, handleDoubleClick };
 }
 
 export function createGetMousePoint(canvasRef: React.RefObject<HTMLCanvasElement>) {
