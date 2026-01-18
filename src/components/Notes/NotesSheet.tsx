@@ -13,16 +13,15 @@ export function NotesSheet() {
         render={
           <Button
             variant="default"
-            size="default"
-            className="fixed top-4 right-4 z-20 shadow-lg"
+            size="icon"
+            className="fixed top-4 right-4 z-20 shadow-lg size-9"
             aria-label="Open notes"
           >
-            <Notebook className="size-4 mr-2" />
-            Notes
+            <Notebook className="size-4" weight="bold" />
           </Button>
         }
       />
-      <SheetContent side="right" className="w-[400px] sm:w-[540px] p-0">
+      <SheetContent side="right" className="right-0! top-0! bottom-0! h-screen! w-full overflow-y-auto sm:right-4! sm:top-4! sm:bottom-4! sm:h-[calc(100vh-2rem)]! sm:rounded-lg sm:max-w-4xl p-0 border!" showCloseButton={false}>
         <NotesList onClose={() => setOpen(false)} />
       </SheetContent>
     </Sheet>
