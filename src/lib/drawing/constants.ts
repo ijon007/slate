@@ -37,17 +37,17 @@ export const TOOL_SHORTCUTS: Record<ToolType, string> = {
 export const COLORS = [
   "#000000",
   "#FFFFFF",
-  "#FF0000",
-  "#00FF00",
-  "#0000FF",
-  "#FFFF00",
-  "#FF00FF",
-  "#00FFFF",
-  "#FFA500",
-  "#800080",
-  "#FFC0CB",
-  "#A52A2A",
+  "#FF6B6B", // Soft red
+  "#66FF66", // Soft green
+  "#6B6BFF", // Soft blue
+  "#FFE66B", // Soft yellow
+  "#FF6BFF", // Soft magenta
+  "#6BFFFF", // Soft cyan
+  "#FFA366", // Soft orange
+  "#CC66CC", // Soft purple
+  "#FF8AB3", // Soft pink
+  "#CC6666", // Soft brown/maroon
   "#808080",
-  "#000080",
-  "#008000",
+  "#6666B3", // Soft dark blue
+  "#66B366", // Soft green
 ];
