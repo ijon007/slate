@@ -15,10 +15,158 @@ import {
   MIN_ZOOM,
   MAX_ZOOM,
   ZOOM_STEP,
+  DEFAULT_FILL_PATTERN,
+  DEFAULT_SLOPPINESS,
+  DEFAULT_EDGE_ROUNDING,
 } from "@/lib/drawing/constants";
+import type { FillPattern, Sloppiness, EdgeRounding } from "@/lib/drawing/types";
 
 const HANDLE_SIZE = 8;
 const HANDLE_HIT_THRESHOLD = 10;
+
+// Helper function to apply sloppiness jitter (deterministic based on value)
+function applySloppiness(value: number, sloppiness: Sloppiness, seed: number = 0): number {
+  if (sloppiness === "subtle") return value;
+  const jitterMap = {
+    subtle: 0,
+    moderate: 2,
+    high: 4,
+  };
+  const jitter = jitterMap[sloppiness];
+  // Use a simple hash-like function for deterministic jitter
+  const hash = Math.sin(value * 0.1 + seed) * jitter;
+  return value + hash;
+}
+
+// Helper function to draw fill patterns
+function drawFillPattern(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  pattern: FillPattern,
+  color: string,
+  opacity: number
+) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = opacity;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+
+  switch (pattern) {
+    case "solid":
+      ctx.fillRect(x, y, width, height);
+      break;
+    case "cross-hatch": {
+      const spacing = 8;
+      ctx.beginPath();
+      // Diagonal lines top-left to bottom-right
+      for (let i = -height; i < width + height; i += spacing) {
+        ctx.moveTo(x + i, y);
+        ctx.lineTo(x + i + height, y + height);
+      }
+      // Diagonal lines top-right to bottom-left
+      for (let i = -height; i < width + height; i += spacing) {
+        ctx.moveTo(x + width - i, y);
+        ctx.lineTo(x + width - i - height, y + height);
+      }
+      ctx.stroke();
+      break;
+    }
+    case "grid": {
+      const spacing = 8;
+      ctx.beginPath();
+      // Vertical lines
+      for (let i = 0; i <= width; i += spacing) {
+        ctx.moveTo(x + i, y);
+        ctx.lineTo(x + i, y + height);
+      }
+      // Horizontal lines
+      for (let i = 0; i <= height; i += spacing) {
+        ctx.moveTo(x, y + i);
+        ctx.lineTo(x + width, y + i);
+      }
+      ctx.stroke();
+      break;
+    }
+    case "dotted": {
+      const spacing = 6;
+      ctx.beginPath();
+      for (let i = spacing; i < width; i += spacing) {
+        for (let j = spacing; j < height; j += spacing) {
+          ctx.moveTo(x + i, y + j);
+          ctx.arc(x + i, y + j, 1, 0, Math.PI * 2);
+        }
+      }
+      ctx.fill();
+      break;
+    }
+  }
+  ctx.restore();
+}
+
+// Helper function to get border radius based on edge rounding
+function getBorderRadius(
+  width: number,
+  height: number,
+  edgeRounding: EdgeRounding
+): number {
+  if (edgeRounding === "sharp") {
+    return 0;
+  }
+  return Math.min(width, height) * 0.1;
+}
+
+// Helper function to draw rounded rectangle with fallback
+function drawRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  if (radius === 0) {
+    ctx.rect(x, y, width, height);
+    return;
+  }
+
+  // Use roundRect if available (modern browsers)
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, width, height, radius);
+    return;
+  }
+
+  // Fallback for older browsers using arcTo
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.arcTo(x + width, y, x + width, y + radius, radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.arcTo(x + width, y + height, x + width - radius, y + height, radius);
+  ctx.lineTo(x + radius, y + height);
+  ctx.arcTo(x, y + height, x, y + height - radius, radius);
+  ctx.lineTo(x, y + radius);
+  ctx.arcTo(x, y, x + radius, y, radius);
+  ctx.closePath();
+}
+
+// Helper function to apply stroke style
+function applyStrokeStyle(ctx: CanvasRenderingContext2D, strokeStyle: string) {
+  switch (strokeStyle) {
+    case "solid":
+      ctx.setLineDash([]);
+      break;
+    case "dashed":
+      ctx.setLineDash([8, 4]);
+      break;
+    case "dotted":
+      ctx.setLineDash([2, 4]);
+      break;
+  }
+}
 
 type ResizeHandle =
   | "nw"
@@ -150,27 +298,53 @@ export function Canvas() {
             y: element.y + element.height,
           });
           // Round coordinates to prevent sub-pixel rendering issues that cause shaking
-          const x = Math.round(screenPoint.x);
-          const y = Math.round(screenPoint.y);
-          const width = Math.round(screenEnd.x - screenPoint.x);
-          const height = Math.round(screenEnd.y - screenPoint.y);
+          let x = Math.round(screenPoint.x);
+          let y = Math.round(screenPoint.y);
+          let width = Math.round(screenEnd.x - screenPoint.x);
+          let height = Math.round(screenEnd.y - screenPoint.y);
+          
+          // Apply sloppiness (deterministic based on element ID)
+          const seed = element.id.charCodeAt(0) || 0;
+          if (element.sloppiness !== "subtle") {
+            x = applySloppiness(x, element.sloppiness, seed);
+            y = applySloppiness(y, element.sloppiness, seed + 1);
+            width = applySloppiness(width, element.sloppiness, seed + 2);
+            height = applySloppiness(height, element.sloppiness, seed + 3);
+          }
+          
+          const borderRadius = getBorderRadius(Math.abs(width), Math.abs(height), element.edgeRounding);
           
           // Draw with native canvas for clean, solid fills
           ctx.save();
           ctx.beginPath();
-          ctx.rect(x, y, width, height);
+          
+          // Use rounded rectangle if needed
+          drawRoundedRect(ctx, x, y, width, height, borderRadius);
           
           // Fill first (if not transparent)
           if (element.fillColor !== "transparent") {
-            ctx.fillStyle = element.fillColor;
-            ctx.globalAlpha = element.opacity;
-            ctx.fill();
+            if (element.fillPattern === "solid") {
+              ctx.fillStyle = element.fillColor;
+              ctx.globalAlpha = element.opacity;
+              ctx.fill();
+            } else {
+              // For patterns, we need to clip to the rounded rectangle
+              ctx.save();
+              ctx.beginPath();
+              drawRoundedRect(ctx, x, y, width, height, borderRadius);
+              ctx.clip();
+              drawFillPattern(ctx, x, y, width, height, element.fillPattern, element.fillColor, element.opacity);
+              ctx.restore();
+            }
           }
           
           // Then stroke for border
+          ctx.beginPath();
+          drawRoundedRect(ctx, x, y, width, height, borderRadius);
           ctx.strokeStyle = element.strokeColor;
           ctx.lineWidth = element.strokeWidth;
           ctx.globalAlpha = element.opacity;
+          applyStrokeStyle(ctx, element.strokeStyle);
           ctx.stroke();
           
           ctx.restore();
@@ -181,12 +355,27 @@ export function Canvas() {
             x: element.x + element.width,
             y: element.y + element.height,
           });
-          const width = screenEnd.x - screenPoint.x;
-          const height = screenEnd.y - screenPoint.y;
+          let width = screenEnd.x - screenPoint.x;
+          let height = screenEnd.y - screenPoint.y;
+          
+          // Apply sloppiness (deterministic based on element ID)
+          const seed = element.id.charCodeAt(0) || 0;
+          if (element.sloppiness !== "subtle") {
+            width = applySloppiness(width, element.sloppiness, seed);
+            height = applySloppiness(height, element.sloppiness, seed + 1);
+          }
+          
           const radius = Math.max(Math.abs(width), Math.abs(height)) / 2;
           // Round coordinates to prevent sub-pixel rendering issues
-          const centerX = Math.round(screenPoint.x + width / 2);
-          const centerY = Math.round(screenPoint.y + height / 2);
+          let centerX = Math.round(screenPoint.x + width / 2);
+          let centerY = Math.round(screenPoint.y + height / 2);
+          
+          // Apply sloppiness to center
+          if (element.sloppiness !== "subtle") {
+            centerX = applySloppiness(centerX, element.sloppiness, seed + 2);
+            centerY = applySloppiness(centerY, element.sloppiness, seed + 3);
+          }
+          
           const roundedRadius = Math.round(radius);
           
           // Draw with native canvas for clean, solid fills
@@ -196,15 +385,31 @@ export function Canvas() {
           
           // Fill first (if not transparent)
           if (element.fillColor !== "transparent") {
-            ctx.fillStyle = element.fillColor;
-            ctx.globalAlpha = element.opacity;
-            ctx.fill();
+            if (element.fillPattern === "solid") {
+              ctx.fillStyle = element.fillColor;
+              ctx.globalAlpha = element.opacity;
+              ctx.fill();
+            } else {
+              // For circles, draw pattern in bounding box and clip to circle
+              ctx.save();
+              ctx.beginPath();
+              ctx.arc(centerX, centerY, roundedRadius, 0, Math.PI * 2);
+              ctx.clip();
+              const patternX = centerX - roundedRadius;
+              const patternY = centerY - roundedRadius;
+              const patternSize = roundedRadius * 2;
+              drawFillPattern(ctx, patternX, patternY, patternSize, patternSize, element.fillPattern, element.fillColor, element.opacity);
+              ctx.restore();
+            }
           }
           
           // Then stroke for border
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, roundedRadius, 0, Math.PI * 2);
           ctx.strokeStyle = element.strokeColor;
           ctx.lineWidth = element.strokeWidth;
           ctx.globalAlpha = element.opacity;
+          applyStrokeStyle(ctx, element.strokeStyle);
           ctx.stroke();
           
           ctx.restore();
@@ -213,10 +418,19 @@ export function Canvas() {
         case "line": {
           const screenEnd = getScreenPoint({ x: element.x2, y: element.y2 });
           // Round coordinates to prevent sub-pixel rendering issues that cause shaking
-          const x1 = Math.round(screenPoint.x);
-          const y1 = Math.round(screenPoint.y);
-          const x2 = Math.round(screenEnd.x);
-          const y2 = Math.round(screenEnd.y);
+          let x1 = Math.round(screenPoint.x);
+          let y1 = Math.round(screenPoint.y);
+          let x2 = Math.round(screenEnd.x);
+          let y2 = Math.round(screenEnd.y);
+          
+          // Apply sloppiness (deterministic based on element ID)
+          const seed = element.id.charCodeAt(0) || 0;
+          if (element.sloppiness !== "subtle") {
+            x1 = applySloppiness(x1, element.sloppiness, seed);
+            y1 = applySloppiness(y1, element.sloppiness, seed + 1);
+            x2 = applySloppiness(x2, element.sloppiness, seed + 2);
+            y2 = applySloppiness(y2, element.sloppiness, seed + 3);
+          }
           
           // Draw with native canvas for clean lines
           ctx.save();
@@ -226,6 +440,7 @@ export function Canvas() {
           ctx.strokeStyle = element.strokeColor;
           ctx.lineWidth = element.strokeWidth;
           ctx.globalAlpha = element.opacity;
+          applyStrokeStyle(ctx, element.strokeStyle);
           ctx.stroke();
           ctx.restore();
           break;
@@ -233,10 +448,20 @@ export function Canvas() {
         case "arrow": {
           const screenEnd = getScreenPoint({ x: element.x2, y: element.y2 });
           // Round coordinates to prevent sub-pixel rendering issues that cause shaking
-          const x1 = Math.round(screenPoint.x);
-          const y1 = Math.round(screenPoint.y);
-          const x2 = Math.round(screenEnd.x);
-          const y2 = Math.round(screenEnd.y);
+          let x1 = Math.round(screenPoint.x);
+          let y1 = Math.round(screenPoint.y);
+          let x2 = Math.round(screenEnd.x);
+          let y2 = Math.round(screenEnd.y);
+          
+          // Apply sloppiness (deterministic based on element ID)
+          const seed = element.id.charCodeAt(0) || 0;
+          if (element.sloppiness !== "subtle") {
+            x1 = applySloppiness(x1, element.sloppiness, seed);
+            y1 = applySloppiness(y1, element.sloppiness, seed + 1);
+            x2 = applySloppiness(x2, element.sloppiness, seed + 2);
+            y2 = applySloppiness(y2, element.sloppiness, seed + 3);
+          }
+          
           const dx = x2 - x1;
           const dy = y2 - y1;
           const angle = Math.atan2(dy, dx);
@@ -253,6 +478,7 @@ export function Canvas() {
           ctx.strokeStyle = element.strokeColor;
           ctx.lineWidth = element.strokeWidth;
           ctx.globalAlpha = element.opacity;
+          applyStrokeStyle(ctx, element.strokeStyle);
           ctx.stroke();
           
           // Draw arrowhead at the end - the line connects to the tip
@@ -289,14 +515,34 @@ export function Canvas() {
           ctx.beginPath();
           const firstPoint = getScreenPoint(element.points[0]);
           // Round coordinates to prevent sub-pixel rendering issues
-          ctx.moveTo(Math.round(firstPoint.x), Math.round(firstPoint.y));
+          let x = Math.round(firstPoint.x);
+          let y = Math.round(firstPoint.y);
+          
+          // Apply sloppiness (deterministic based on element ID)
+          const seed = element.id.charCodeAt(0) || 0;
+          if (element.sloppiness !== "subtle") {
+            x = applySloppiness(x, element.sloppiness, seed);
+            y = applySloppiness(y, element.sloppiness, seed + 1);
+          }
+          
+          ctx.moveTo(x, y);
           for (let i = 1; i < element.points.length; i++) {
             const point = getScreenPoint(element.points[i]);
-            ctx.lineTo(Math.round(point.x), Math.round(point.y));
+            let px = Math.round(point.x);
+            let py = Math.round(point.y);
+            
+            // Apply sloppiness
+            if (element.sloppiness !== "subtle") {
+              px = applySloppiness(px, element.sloppiness, seed + i * 2);
+              py = applySloppiness(py, element.sloppiness, seed + i * 2 + 1);
+            }
+            
+            ctx.lineTo(px, py);
           }
           ctx.strokeStyle = element.strokeColor;
           ctx.lineWidth = element.strokeWidth;
           ctx.globalAlpha = element.opacity;
+          applyStrokeStyle(ctx, element.strokeStyle);
           ctx.stroke();
           ctx.globalAlpha = 1;
           break;
@@ -540,6 +786,9 @@ export function Canvas() {
         strokeStyle: "solid",
         opacity: 1,
         angle: 0,
+        fillPattern: DEFAULT_FILL_PATTERN,
+        sloppiness: DEFAULT_SLOPPINESS,
+        edgeRounding: DEFAULT_EDGE_ROUNDING,
       };
       addElement(newTextElement);
       setSelectedElementIds([id]);
@@ -673,6 +922,9 @@ export function Canvas() {
             strokeStyle: "solid",
             opacity: 1,
             angle: 0,
+            fillPattern: DEFAULT_FILL_PATTERN,
+            sloppiness: DEFAULT_SLOPPINESS,
+            edgeRounding: DEFAULT_EDGE_ROUNDING,
           };
           break;
         case "circle":
@@ -689,6 +941,9 @@ export function Canvas() {
             strokeStyle: "solid",
             opacity: 1,
             angle: 0,
+            fillPattern: DEFAULT_FILL_PATTERN,
+            sloppiness: DEFAULT_SLOPPINESS,
+            edgeRounding: DEFAULT_EDGE_ROUNDING,
           };
           break;
         case "line":
@@ -705,6 +960,9 @@ export function Canvas() {
             strokeStyle: "solid",
             opacity: 1,
             angle: 0,
+            fillPattern: DEFAULT_FILL_PATTERN,
+            sloppiness: DEFAULT_SLOPPINESS,
+            edgeRounding: DEFAULT_EDGE_ROUNDING,
           };
           break;
         case "arrow":
@@ -721,6 +979,9 @@ export function Canvas() {
             strokeStyle: "solid",
             opacity: 1,
             angle: 0,
+            fillPattern: DEFAULT_FILL_PATTERN,
+            sloppiness: DEFAULT_SLOPPINESS,
+            edgeRounding: DEFAULT_EDGE_ROUNDING,
           };
           break;
         case "text":
@@ -740,6 +1001,9 @@ export function Canvas() {
               strokeStyle: "solid",
               opacity: 1,
               angle: 0,
+              fillPattern: DEFAULT_FILL_PATTERN,
+              sloppiness: DEFAULT_SLOPPINESS,
+              edgeRounding: DEFAULT_EDGE_ROUNDING,
             };
           } else {
             newElement = {
@@ -841,6 +1105,9 @@ export function Canvas() {
               strokeStyle: "solid",
               opacity: 1,
               angle: 0,
+              fillPattern: DEFAULT_FILL_PATTERN,
+              sloppiness: DEFAULT_SLOPPINESS,
+              edgeRounding: DEFAULT_EDGE_ROUNDING,
             };
             break;
           }
@@ -860,6 +1127,9 @@ export function Canvas() {
               strokeStyle: "solid",
               opacity: 1,
               angle: 0,
+              fillPattern: DEFAULT_FILL_PATTERN,
+              sloppiness: DEFAULT_SLOPPINESS,
+              edgeRounding: DEFAULT_EDGE_ROUNDING,
             };
             break;
           }
@@ -883,6 +1153,9 @@ export function Canvas() {
               strokeStyle: "solid",
               opacity: 1,
               angle: 0,
+              fillPattern: DEFAULT_FILL_PATTERN,
+              sloppiness: DEFAULT_SLOPPINESS,
+              edgeRounding: DEFAULT_EDGE_ROUNDING,
             };
             break;
           }
@@ -900,6 +1173,9 @@ export function Canvas() {
               strokeStyle: "solid",
               opacity: 1,
               angle: 0,
+              fillPattern: DEFAULT_FILL_PATTERN,
+              sloppiness: DEFAULT_SLOPPINESS,
+              edgeRounding: DEFAULT_EDGE_ROUNDING,
             };
             break;
           }
@@ -916,6 +1192,9 @@ export function Canvas() {
               strokeStyle: "solid",
               opacity: 1,
               angle: 0,
+              fillPattern: DEFAULT_FILL_PATTERN,
+              sloppiness: DEFAULT_SLOPPINESS,
+              edgeRounding: DEFAULT_EDGE_ROUNDING,
             };
             break;
           }

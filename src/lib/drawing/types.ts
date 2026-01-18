@@ -16,6 +16,9 @@ export type ElementType =
   | "freehand";
 
 export type StrokeStyle = "solid" | "dashed" | "dotted";
+export type FillPattern = "solid" | "cross-hatch" | "grid" | "dotted";
+export type Sloppiness = "subtle" | "moderate" | "high";
+export type EdgeRounding = "sharp" | "rounded";
 
 export interface Point {
   x: number;
@@ -33,6 +36,9 @@ export interface BaseElement {
   strokeStyle: StrokeStyle;
   opacity: number;
   angle: number;
+  fillPattern: FillPattern;
+  sloppiness: Sloppiness;
+  edgeRounding: EdgeRounding;
 }
 
 export interface RectangleElement extends BaseElement {

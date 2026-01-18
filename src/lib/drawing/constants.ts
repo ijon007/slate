@@ -9,6 +9,14 @@ export const DEFAULT_FONT_FAMILY = "Inter";
 export const MIN_STROKE_WIDTH = 1;
 export const MAX_STROKE_WIDTH = 20;
 
+export const STROKE_WIDTH_THIN = 1;
+export const STROKE_WIDTH_MEDIUM = 3;
+export const STROKE_WIDTH_THICK = 5;
+
+export const DEFAULT_FILL_PATTERN = "solid";
+export const DEFAULT_SLOPPINESS = "moderate";
+export const DEFAULT_EDGE_ROUNDING = "rounded";
+
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 5;
 export const DEFAULT_ZOOM = 1;
