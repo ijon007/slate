@@ -39,7 +39,7 @@ interface DrawingState {
   dragOffset: Point | null;
   isResizing: boolean;
   resizeHandle: ResizeHandle;
-  resizeStartBounds: { x: number; y: number; width: number; height: number } | null;
+  resizeStartBounds: { minX: number; minY: number; maxX: number; maxY: number } | null;
   isPanning: boolean;
   panStart: Point | null;
 }
@@ -47,7 +47,7 @@ interface DrawingState {
 export function Canvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const roughInstanceRef = useRef<rough.RoughSVG | null>(null);
+  const roughInstanceRef = useRef<ReturnType<typeof rough.svg> | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
   const {
@@ -138,19 +138,10 @@ export function Canvas() {
     [canvasState.zoom, canvasState.offsetX, canvasState.offsetY]
   );
 
-  // Draw a single element using Rough.js
+  // Draw a single element
   const drawElement = useCallback(
     (ctx: CanvasRenderingContext2D, element: DrawingElement) => {
-      if (!roughInstanceRef.current) return;
-
       const screenPoint = getScreenPoint({ x: element.x, y: element.y });
-      const options = {
-        stroke: element.strokeColor,
-        fill: element.fillColor === "transparent" ? undefined : element.fillColor,
-        strokeWidth: element.strokeWidth,
-        roughness: 1,
-        opacity: element.opacity,
-      };
 
       switch (element.type) {
         case "rectangle": {
@@ -158,20 +149,31 @@ export function Canvas() {
             x: element.x + element.width,
             y: element.y + element.height,
           });
-          const width = screenEnd.x - screenPoint.x;
-          const height = screenEnd.y - screenPoint.y;
-          // Ensure minimum dimensions for visibility
-          const minSize = 1;
-          const finalWidth = Math.abs(width) < minSize ? (width >= 0 ? minSize : -minSize) : width;
-          const finalHeight = Math.abs(height) < minSize ? (height >= 0 ? minSize : -minSize) : height;
-          const svgPath = roughInstanceRef.current.rectangle(
-            screenPoint.x,
-            screenPoint.y,
-            finalWidth,
-            finalHeight,
-            options
-          );
-          drawRoughPath(ctx, svgPath, element);
+          // Round coordinates to prevent sub-pixel rendering issues that cause shaking
+          const x = Math.round(screenPoint.x);
+          const y = Math.round(screenPoint.y);
+          const width = Math.round(screenEnd.x - screenPoint.x);
+          const height = Math.round(screenEnd.y - screenPoint.y);
+          
+          // Draw with native canvas for clean, solid fills
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x, y, width, height);
+          
+          // Fill first (if not transparent)
+          if (element.fillColor !== "transparent") {
+            ctx.fillStyle = element.fillColor;
+            ctx.globalAlpha = element.opacity;
+            ctx.fill();
+          }
+          
+          // Then stroke for border
+          ctx.strokeStyle = element.strokeColor;
+          ctx.lineWidth = element.strokeWidth;
+          ctx.globalAlpha = element.opacity;
+          ctx.stroke();
+          
+          ctx.restore();
           break;
         }
         case "circle": {
@@ -182,49 +184,61 @@ export function Canvas() {
           const width = screenEnd.x - screenPoint.x;
           const height = screenEnd.y - screenPoint.y;
           const radius = Math.max(Math.abs(width), Math.abs(height)) / 2;
-          const centerX = screenPoint.x + width / 2;
-          const centerY = screenPoint.y + height / 2;
-          const svgPath = roughInstanceRef.current.circle(
-            centerX,
-            centerY,
-            radius * 2,
-            options
-          );
-          drawRoughPath(ctx, svgPath, element);
+          // Round coordinates to prevent sub-pixel rendering issues
+          const centerX = Math.round(screenPoint.x + width / 2);
+          const centerY = Math.round(screenPoint.y + height / 2);
+          const roundedRadius = Math.round(radius);
+          
+          // Draw with native canvas for clean, solid fills
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, roundedRadius, 0, Math.PI * 2);
+          
+          // Fill first (if not transparent)
+          if (element.fillColor !== "transparent") {
+            ctx.fillStyle = element.fillColor;
+            ctx.globalAlpha = element.opacity;
+            ctx.fill();
+          }
+          
+          // Then stroke for border
+          ctx.strokeStyle = element.strokeColor;
+          ctx.lineWidth = element.strokeWidth;
+          ctx.globalAlpha = element.opacity;
+          ctx.stroke();
+          
+          ctx.restore();
           break;
         }
         case "line": {
           const screenEnd = getScreenPoint({ x: element.x2, y: element.y2 });
-          // Ensure line is visible even if very short
-          const dx = screenEnd.x - screenPoint.x;
-          const dy = screenEnd.y - screenPoint.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance < 0.5) {
-            // Draw a minimal line to ensure visibility
-            ctx.beginPath();
-            ctx.moveTo(screenPoint.x, screenPoint.y);
-            ctx.lineTo(screenEnd.x + (dx === 0 ? 0.5 : 0), screenEnd.y + (dy === 0 ? 0.5 : 0));
-            ctx.strokeStyle = element.strokeColor;
-            ctx.lineWidth = element.strokeWidth;
-            ctx.globalAlpha = element.opacity;
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-          } else {
-            const svgPath = roughInstanceRef.current.line(
-              screenPoint.x,
-              screenPoint.y,
-              screenEnd.x,
-              screenEnd.y,
-              options
-            );
-            drawRoughPath(ctx, svgPath, element);
-          }
+          // Round coordinates to prevent sub-pixel rendering issues that cause shaking
+          const x1 = Math.round(screenPoint.x);
+          const y1 = Math.round(screenPoint.y);
+          const x2 = Math.round(screenEnd.x);
+          const y2 = Math.round(screenEnd.y);
+          
+          // Draw with native canvas for clean lines
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.strokeStyle = element.strokeColor;
+          ctx.lineWidth = element.strokeWidth;
+          ctx.globalAlpha = element.opacity;
+          ctx.stroke();
+          ctx.restore();
           break;
         }
         case "arrow": {
           const screenEnd = getScreenPoint({ x: element.x2, y: element.y2 });
-          const dx = screenEnd.x - screenPoint.x;
-          const dy = screenEnd.y - screenPoint.y;
+          // Round coordinates to prevent sub-pixel rendering issues that cause shaking
+          const x1 = Math.round(screenPoint.x);
+          const y1 = Math.round(screenPoint.y);
+          const x2 = Math.round(screenEnd.x);
+          const y2 = Math.round(screenEnd.y);
+          const dx = x2 - x1;
+          const dy = y2 - y1;
           const angle = Math.atan2(dy, dx);
           
           // Calculate arrowhead dimensions based on stroke width
@@ -234,8 +248,8 @@ export function Canvas() {
           // Draw the line from start all the way to the tip using native canvas for reliability
           ctx.save();
           ctx.beginPath();
-          ctx.moveTo(screenPoint.x, screenPoint.y);
-          ctx.lineTo(screenEnd.x, screenEnd.y);
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
           ctx.strokeStyle = element.strokeColor;
           ctx.lineWidth = element.strokeWidth;
           ctx.globalAlpha = element.opacity;
@@ -243,15 +257,15 @@ export function Canvas() {
           
           // Draw arrowhead at the end - the line connects to the tip
           // Calculate arrowhead points
-          const x1 = screenEnd.x - arrowLength * Math.cos(angle - arrowAngle);
-          const y1 = screenEnd.y - arrowLength * Math.sin(angle - arrowAngle);
-          const x2 = screenEnd.x - arrowLength * Math.cos(angle + arrowAngle);
-          const y2 = screenEnd.y - arrowLength * Math.sin(angle + arrowAngle);
+          const arrowX1 = Math.round(x2 - arrowLength * Math.cos(angle - arrowAngle));
+          const arrowY1 = Math.round(y2 - arrowLength * Math.sin(angle - arrowAngle));
+          const arrowX2 = Math.round(x2 - arrowLength * Math.cos(angle + arrowAngle));
+          const arrowY2 = Math.round(y2 - arrowLength * Math.sin(angle + arrowAngle));
           
           ctx.beginPath();
-          ctx.moveTo(screenEnd.x, screenEnd.y);
-          ctx.lineTo(x1, y1);
-          ctx.lineTo(x2, y2);
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(arrowX1, arrowY1);
+          ctx.lineTo(arrowX2, arrowY2);
           ctx.closePath();
           ctx.fillStyle = element.strokeColor;
           ctx.fill();
@@ -260,10 +274,13 @@ export function Canvas() {
           break;
         }
         case "text": {
+          // Round coordinates to prevent sub-pixel rendering issues
+          const x = Math.round(screenPoint.x);
+          const y = Math.round(screenPoint.y + element.fontSize);
           ctx.font = `${element.fontSize}px ${element.fontFamily}`;
           ctx.fillStyle = element.strokeColor;
           ctx.globalAlpha = element.opacity;
-          ctx.fillText(element.text, screenPoint.x, screenPoint.y + element.fontSize);
+          ctx.fillText(element.text, x, y);
           ctx.globalAlpha = 1;
           break;
         }
@@ -271,10 +288,11 @@ export function Canvas() {
           if (element.points.length < 2) break;
           ctx.beginPath();
           const firstPoint = getScreenPoint(element.points[0]);
-          ctx.moveTo(firstPoint.x, firstPoint.y);
+          // Round coordinates to prevent sub-pixel rendering issues
+          ctx.moveTo(Math.round(firstPoint.x), Math.round(firstPoint.y));
           for (let i = 1; i < element.points.length; i++) {
             const point = getScreenPoint(element.points[i]);
-            ctx.lineTo(point.x, point.y);
+            ctx.lineTo(Math.round(point.x), Math.round(point.y));
           }
           ctx.strokeStyle = element.strokeColor;
           ctx.lineWidth = element.strokeWidth;
@@ -287,23 +305,6 @@ export function Canvas() {
     },
     [getScreenPoint]
   );
-
-  // Helper to draw Rough.js SVG path to canvas
-  const drawRoughPath = (
-    ctx: CanvasRenderingContext2D,
-    svgPath: SVGPathElement,
-    element: DrawingElement
-  ) => {
-    const path = new Path2D(svgPath.getAttribute("d") || "");
-    // Use element colors directly to ensure they're applied correctly
-    ctx.fillStyle = element.fillColor === "transparent" ? "transparent" : element.fillColor;
-    ctx.strokeStyle = element.strokeColor;
-    ctx.lineWidth = element.strokeWidth;
-    ctx.globalAlpha = element.opacity;
-    ctx.fill(path);
-    ctx.stroke(path);
-    ctx.globalAlpha = 1;
-  };
 
   // Draw selection handles
   const drawHandles = useCallback(
@@ -579,48 +580,46 @@ export function Canvas() {
 
       switch (drawingState.resizeHandle) {
         case "nw":
-          newBounds.width = bounds.width + (bounds.minX - worldPoint.x);
-          newBounds.height = bounds.height + (bounds.minY - worldPoint.y);
           newBounds.minX = worldPoint.x;
           newBounds.minY = worldPoint.y;
+          newBounds.maxX = bounds.maxX;
+          newBounds.maxY = bounds.maxY;
           break;
         case "n":
-          newBounds.height = bounds.height + (bounds.minY - worldPoint.y);
           newBounds.minY = worldPoint.y;
           break;
         case "ne":
-          newBounds.width = worldPoint.x - bounds.minX;
-          newBounds.height = bounds.height + (bounds.minY - worldPoint.y);
+          newBounds.maxX = worldPoint.x;
           newBounds.minY = worldPoint.y;
           break;
         case "e":
-          newBounds.width = worldPoint.x - bounds.minX;
+          newBounds.maxX = worldPoint.x;
           break;
         case "se":
-          newBounds.width = worldPoint.x - bounds.minX;
-          newBounds.height = worldPoint.y - bounds.minY;
+          newBounds.maxX = worldPoint.x;
+          newBounds.maxY = worldPoint.y;
           break;
         case "s":
-          newBounds.height = worldPoint.y - bounds.minY;
+          newBounds.maxY = worldPoint.y;
           break;
         case "sw":
-          newBounds.width = bounds.width + (bounds.minX - worldPoint.x);
-          newBounds.height = worldPoint.y - bounds.minY;
           newBounds.minX = worldPoint.x;
+          newBounds.maxY = worldPoint.y;
           break;
         case "w":
-          newBounds.width = bounds.width + (bounds.minX - worldPoint.x);
           newBounds.minX = worldPoint.x;
           break;
       }
 
       // Update element based on type
       if (element.type === "rectangle" || element.type === "circle" || element.type === "text") {
+        const width = newBounds.maxX - newBounds.minX;
+        const height = newBounds.maxY - newBounds.minY;
         updateElement(element.id, {
           x: newBounds.minX,
           y: newBounds.minY,
-          width: Math.max(10, newBounds.width),
-          height: Math.max(10, newBounds.height),
+          width: Math.max(10, width),
+          height: Math.max(10, height),
         });
       } else if (element.type === "line" || element.type === "arrow") {
         if (drawingState.resizeHandle === "nw" || drawingState.resizeHandle === "w" || drawingState.resizeHandle === "n") {
@@ -642,7 +641,6 @@ export function Canvas() {
       selectedElementIds.forEach((id) => {
         const element = elements.find((el) => el.id === id);
         if (element) {
-          const bounds = getElementBounds(element);
           updateElement(id, {
             x: worldPoint.x - drawingState.dragOffset!.x,
             y: worldPoint.y - drawingState.dragOffset!.y,
@@ -762,13 +760,48 @@ export function Canvas() {
   };
 
   const handleMouseUp = (e?: React.MouseEvent) => {
-    if (drawingState.isDrawing && drawingState.startPoint) {
-      // If we have a current element, use it but ensure minimum sizes; otherwise create one from startPoint
+    if (drawingState.isDrawing && drawingState.startPoint && selectedTool !== "selection" && selectedTool !== "text") {
+      const { startPoint } = drawingState;
       let elementToAdd = drawingState.currentElement;
       
-      // Ensure minimum sizes for existing elements
+      // Get current mouse position
+      let worldPoint = startPoint;
+      if (e) {
+        const point = getMousePoint(e);
+        worldPoint = getWorldPoint(point);
+      } else if (drawingState.currentElement) {
+        // If no event but we have a current element, use its end point
+        if (drawingState.currentElement.type === "line" || drawingState.currentElement.type === "arrow") {
+          worldPoint = {
+            x: drawingState.currentElement.x2 || startPoint.x,
+            y: drawingState.currentElement.y2 || startPoint.y,
+          };
+        } else if (drawingState.currentElement.type === "rectangle" || drawingState.currentElement.type === "circle" || drawingState.currentElement.type === "text") {
+          worldPoint = {
+            x: drawingState.currentElement.x + drawingState.currentElement.width,
+            y: drawingState.currentElement.y + drawingState.currentElement.height,
+          };
+        } else {
+          worldPoint = {
+            x: startPoint.x + 50,
+            y: startPoint.y + 50,
+          };
+        }
+      } else {
+        // Fallback: use startPoint with offset
+        worldPoint = {
+          x: startPoint.x + 50,
+          y: startPoint.y + 50,
+        };
+      }
+      
+      // Use existing element ID if available, otherwise create new one
+      const id = drawingState.currentElement?.id || crypto.randomUUID();
+      const minSize = 20; // Minimum size for shapes to ensure visibility
+
+      // Ensure minimum sizes for existing elements, or create new ones
       if (elementToAdd) {
-        const minSize = 20;
+        // Use existing element but enforce minimum sizes
         if (elementToAdd.type === "rectangle" || elementToAdd.type === "circle") {
           if (elementToAdd.width < minSize || elementToAdd.height < minSize) {
             elementToAdd = {
@@ -789,30 +822,10 @@ export function Canvas() {
             };
           }
         }
-      }
-      
-      if (!elementToAdd && selectedTool !== "selection" && selectedTool !== "text") {
-        // Create element if it doesn't exist (e.g., if mouse didn't move)
-        const { startPoint } = drawingState;
-        let worldPoint = startPoint;
-        
-        if (e) {
-          const point = getMousePoint(e);
-          worldPoint = getWorldPoint(point);
-        } else {
-          // If no event (e.g., from onMouseLeave), use startPoint with a small offset
-          worldPoint = {
-            x: startPoint.x + 50,
-            y: startPoint.y + 50,
-          };
-        }
-        
-        // Use existing element ID if available, otherwise create new one
-        const id = drawingState.currentElement?.id || crypto.randomUUID();
-        const minSize = 20; // Minimum size for shapes to ensure visibility
-
+      } else {
+        // Create new element if it doesn't exist
         switch (selectedTool) {
-          case "rectangle":
+          case "rectangle": {
             const rectWidth = Math.abs(worldPoint.x - startPoint.x);
             const rectHeight = Math.abs(worldPoint.y - startPoint.y);
             elementToAdd = {
@@ -820,8 +833,8 @@ export function Canvas() {
               type: "rectangle",
               x: Math.min(startPoint.x, worldPoint.x),
               y: Math.min(startPoint.y, worldPoint.y),
-              width: rectWidth < minSize ? minSize : rectWidth,
-              height: rectHeight < minSize ? minSize : rectHeight,
+              width: Math.max(minSize, rectWidth),
+              height: Math.max(minSize, rectHeight),
               strokeColor: strokeColor,
               fillColor: fillColor,
               strokeWidth: DEFAULT_STROKE_WIDTH,
@@ -830,7 +843,8 @@ export function Canvas() {
               angle: 0,
             };
             break;
-          case "circle":
+          }
+          case "circle": {
             const circleWidth = Math.abs(worldPoint.x - startPoint.x);
             const circleHeight = Math.abs(worldPoint.y - startPoint.y);
             elementToAdd = {
@@ -838,8 +852,8 @@ export function Canvas() {
               type: "circle",
               x: Math.min(startPoint.x, worldPoint.x),
               y: Math.min(startPoint.y, worldPoint.y),
-              width: circleWidth < minSize ? minSize : circleWidth,
-              height: circleHeight < minSize ? minSize : circleHeight,
+              width: Math.max(minSize, circleWidth),
+              height: Math.max(minSize, circleHeight),
               strokeColor: strokeColor,
               fillColor: fillColor,
               strokeWidth: DEFAULT_STROKE_WIDTH,
@@ -848,7 +862,8 @@ export function Canvas() {
               angle: 0,
             };
             break;
-          case "line":
+          }
+          case "line": {
             // For lines, ensure there's at least a small visible distance
             const dx = worldPoint.x - startPoint.x;
             const dy = worldPoint.y - startPoint.y;
@@ -870,7 +885,8 @@ export function Canvas() {
               angle: 0,
             };
             break;
-          case "arrow":
+          }
+          case "arrow": {
             elementToAdd = {
               id,
               type: "arrow",
@@ -886,9 +902,27 @@ export function Canvas() {
               angle: 0,
             };
             break;
+          }
+          case "freehand": {
+            elementToAdd = {
+              id,
+              type: "freehand",
+              x: startPoint.x,
+              y: startPoint.y,
+              points: [startPoint],
+              strokeColor: strokeColor,
+              fillColor: fillColor,
+              strokeWidth: DEFAULT_STROKE_WIDTH,
+              strokeStyle: "solid",
+              opacity: 1,
+              angle: 0,
+            };
+            break;
+          }
         }
       }
 
+      // Always add the element if we have one
       if (elementToAdd) {
         addElement(elementToAdd);
       }

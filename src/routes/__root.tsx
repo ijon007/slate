@@ -41,7 +41,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <ErrorBoundary>
           {children}
         </ErrorBoundary>
-        <Toaster position="top-right" />
+        <Toaster position="bottom-right" />
         <TanStackDevtools
           config={{
             position: 'bottom-right',
