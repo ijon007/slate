@@ -7,6 +7,7 @@ import {
   toWorldCoordinates,
   toScreenCoordinates,
   getElementBounds,
+  elementIntersectsBox,
 } from "@/lib/drawing/utils";
 import {
   DEFAULT_STROKE_WIDTH,
@@ -23,6 +24,25 @@ import type { FillPattern, Sloppiness, EdgeRounding } from "@/lib/drawing/types"
 
 const HANDLE_SIZE = 8;
 const HANDLE_HIT_THRESHOLD = 10;
+
+// Helper function to get computed CSS color value
+function getComputedColor(cssVariable: string): string {
+  if (typeof window === "undefined") return "#0066ff";
+  
+  const tempEl = document.createElement("div");
+  tempEl.style.color = `var(${cssVariable})`;
+  document.body.appendChild(tempEl);
+  const computedColor = window.getComputedStyle(tempEl).color;
+  document.body.removeChild(tempEl);
+  
+  // If we get a valid rgb/rgba value, return it
+  if (computedColor && computedColor !== "rgba(0, 0, 0, 0)") {
+    return computedColor;
+  }
+  
+  // Fallback to a default primary-like color
+  return "#0066ff";
+}
 
 // Helper function to apply sloppiness jitter (deterministic based on value)
 function applySloppiness(value: number, sloppiness: Sloppiness, seed: number = 0): number {
@@ -190,6 +210,10 @@ interface DrawingState {
   resizeStartBounds: { minX: number; minY: number; maxX: number; maxY: number } | null;
   isPanning: boolean;
   panStart: Point | null;
+  isBoxSelecting: boolean;
+  boxSelectionStart: Point | null;
+  boxSelectionEnd: Point | null;
+  boxSelectionShiftKey: boolean;
 }
 
 export function Canvas() {
@@ -225,6 +249,10 @@ export function Canvas() {
     resizeStartBounds: null,
     isPanning: false,
     panStart: null,
+    isBoxSelecting: false,
+    boxSelectionStart: null,
+    boxSelectionEnd: null,
+    boxSelectionShiftKey: false,
   });
 
   // Track theme state to trigger redraws
@@ -563,39 +591,74 @@ export function Canvas() {
     [getScreenPoint]
   );
 
-  // Draw selection handles
+  // Draw selection handles and border
   const drawHandles = useCallback(
     (ctx: CanvasRenderingContext2D, element: DrawingElement) => {
       const bounds = getElementBounds(element);
-      const corners = [
-        { x: bounds.minX, y: bounds.minY }, // nw
-        { x: (bounds.minX + bounds.maxX) / 2, y: bounds.minY }, // n
-        { x: bounds.maxX, y: bounds.minY }, // ne
-        { x: bounds.maxX, y: (bounds.minY + bounds.maxY) / 2 }, // e
-        { x: bounds.maxX, y: bounds.maxY }, // se
-        { x: (bounds.minX + bounds.maxX) / 2, y: bounds.maxY }, // s
-        { x: bounds.minX, y: bounds.maxY }, // sw
-        { x: bounds.minX, y: (bounds.minY + bounds.maxY) / 2 }, // w
+      
+      // Get primary color from CSS
+      const primaryColor = getComputedColor("--primary");
+      
+      // Convert bounds to screen coordinates
+      const minScreen = getScreenPoint({ x: bounds.minX, y: bounds.minY });
+      const maxScreen = getScreenPoint({ x: bounds.maxX, y: bounds.maxY });
+      
+      // Calculate screen rectangle dimensions
+      const x = Math.min(minScreen.x, maxScreen.x);
+      const y = Math.min(minScreen.y, maxScreen.y);
+      const width = Math.abs(maxScreen.x - minScreen.x);
+      const height = Math.abs(maxScreen.y - minScreen.y);
+      
+      // Round to prevent sub-pixel rendering issues
+      const rectX = Math.round(x);
+      const rectY = Math.round(y);
+      const rectWidth = Math.round(width);
+      const rectHeight = Math.round(height);
+      
+      ctx.save();
+      
+      // Draw border rectangle
+      ctx.strokeStyle = primaryColor;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([]);
+      ctx.strokeRect(rectX, rectY, rectWidth, rectHeight);
+      
+      // Calculate handle positions on the border
+      const handlePositions = [
+        { x: rectX, y: rectY }, // nw
+        { x: rectX + rectWidth / 2, y: rectY }, // n
+        { x: rectX + rectWidth, y: rectY }, // ne
+        { x: rectX + rectWidth, y: rectY + rectHeight / 2 }, // e
+        { x: rectX + rectWidth, y: rectY + rectHeight }, // se
+        { x: rectX + rectWidth / 2, y: rectY + rectHeight }, // s
+        { x: rectX, y: rectY + rectHeight }, // sw
+        { x: rectX, y: rectY + rectHeight / 2 }, // w
       ];
-
-      corners.forEach((corner) => {
-        const screenPoint = getScreenPoint(corner);
+      
+      // Draw handles
+      handlePositions.forEach((pos) => {
+        const handleX = Math.round(pos.x);
+        const handleY = Math.round(pos.y);
+        
         ctx.fillStyle = "#fff";
-        ctx.strokeStyle = "#0066ff";
+        ctx.strokeStyle = primaryColor;
         ctx.lineWidth = 2;
+        ctx.setLineDash([]);
         ctx.fillRect(
-          screenPoint.x - HANDLE_SIZE / 2,
-          screenPoint.y - HANDLE_SIZE / 2,
+          handleX - HANDLE_SIZE / 2,
+          handleY - HANDLE_SIZE / 2,
           HANDLE_SIZE,
           HANDLE_SIZE
         );
         ctx.strokeRect(
-          screenPoint.x - HANDLE_SIZE / 2,
-          screenPoint.y - HANDLE_SIZE / 2,
+          handleX - HANDLE_SIZE / 2,
+          handleY - HANDLE_SIZE / 2,
           HANDLE_SIZE,
           HANDLE_SIZE
         );
       });
+      
+      ctx.restore();
     },
     [getScreenPoint]
   );
@@ -604,23 +667,40 @@ export function Canvas() {
   const getResizeHandle = useCallback(
     (point: Point, element: DrawingElement): ResizeHandle => {
       const bounds = getElementBounds(element);
-      const corners = [
-        { handle: "nw" as const, x: bounds.minX, y: bounds.minY },
-        { handle: "n" as const, x: (bounds.minX + bounds.maxX) / 2, y: bounds.minY },
-        { handle: "ne" as const, x: bounds.maxX, y: bounds.minY },
-        { handle: "e" as const, x: bounds.maxX, y: (bounds.minY + bounds.maxY) / 2 },
-        { handle: "se" as const, x: bounds.maxX, y: bounds.maxY },
-        { handle: "s" as const, x: (bounds.minX + bounds.maxX) / 2, y: bounds.maxY },
-        { handle: "sw" as const, x: bounds.minX, y: bounds.maxY },
-        { handle: "w" as const, x: bounds.minX, y: (bounds.minY + bounds.maxY) / 2 },
+      
+      // Convert bounds to screen coordinates (same as in drawHandles)
+      const minScreen = getScreenPoint({ x: bounds.minX, y: bounds.minY });
+      const maxScreen = getScreenPoint({ x: bounds.maxX, y: bounds.maxY });
+      
+      // Calculate screen rectangle dimensions
+      const x = Math.min(minScreen.x, maxScreen.x);
+      const y = Math.min(minScreen.y, maxScreen.y);
+      const width = Math.abs(maxScreen.x - minScreen.x);
+      const height = Math.abs(maxScreen.y - minScreen.y);
+      
+      // Round to match drawHandles
+      const rectX = Math.round(x);
+      const rectY = Math.round(y);
+      const rectWidth = Math.round(width);
+      const rectHeight = Math.round(height);
+      
+      // Calculate handle positions (must match drawHandles exactly)
+      const handlePositions = [
+        { handle: "nw" as const, x: rectX, y: rectY },
+        { handle: "n" as const, x: rectX + rectWidth / 2, y: rectY },
+        { handle: "ne" as const, x: rectX + rectWidth, y: rectY },
+        { handle: "e" as const, x: rectX + rectWidth, y: rectY + rectHeight / 2 },
+        { handle: "se" as const, x: rectX + rectWidth, y: rectY + rectHeight },
+        { handle: "s" as const, x: rectX + rectWidth / 2, y: rectY + rectHeight },
+        { handle: "sw" as const, x: rectX, y: rectY + rectHeight },
+        { handle: "w" as const, x: rectX, y: rectY + rectHeight / 2 },
       ];
 
-      for (const corner of corners) {
-        const screenPoint = getScreenPoint(corner);
-        const dx = point.x - screenPoint.x;
-        const dy = point.y - screenPoint.y;
+      for (const handlePos of handlePositions) {
+        const dx = point.x - handlePos.x;
+        const dy = point.y - handlePos.y;
         if (Math.sqrt(dx * dx + dy * dy) < HANDLE_HIT_THRESHOLD) {
-          return corner.handle;
+          return handlePos.handle;
         }
       }
       return null;
@@ -690,7 +770,35 @@ export function Canvas() {
         drawHandles(ctx, element);
       }
     });
-  }, [elements, selectedElementIds, drawingState.currentElement, drawElement, drawHandles, canvasBackgroundColorDark, canvasBackgroundColorLight, isDarkTheme, drawGrid]);
+
+    // Draw box selection rectangle
+    if (drawingState.isBoxSelecting && drawingState.boxSelectionStart && drawingState.boxSelectionEnd) {
+      const startScreen = getScreenPoint(drawingState.boxSelectionStart);
+      const endScreen = getScreenPoint(drawingState.boxSelectionEnd);
+      
+      const x = Math.min(startScreen.x, endScreen.x);
+      const y = Math.min(startScreen.y, endScreen.y);
+      const width = Math.abs(endScreen.x - startScreen.x);
+      const height = Math.abs(endScreen.y - startScreen.y);
+
+      // Get primary color from CSS
+      const primaryColor = getComputedColor("--primary");
+
+      ctx.save();
+      // Draw semi-transparent fill
+      ctx.fillStyle = primaryColor;
+      ctx.globalAlpha = 0.1;
+      ctx.fillRect(x, y, width, height);
+      ctx.globalAlpha = 1;
+      
+      // Draw dashed border
+      ctx.strokeStyle = primaryColor;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(x, y, width, height);
+      ctx.restore();
+    }
+  }, [elements, selectedElementIds, drawingState.currentElement, drawingState.isBoxSelecting, drawingState.boxSelectionStart, drawingState.boxSelectionEnd, drawElement, drawHandles, canvasBackgroundColorDark, canvasBackgroundColorLight, isDarkTheme, drawGrid, getScreenPoint]);
 
   // Watch for theme changes and update state
   useEffect(() => {
@@ -759,8 +867,8 @@ export function Canvas() {
     const point = getMousePoint(e);
     const worldPoint = getWorldPoint(point);
 
-    // Check if panning (space or middle mouse)
-    if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
+    // Check if panning (middle mouse button only)
+    if (e.button === 1) {
       setDrawingState({
         ...drawingState,
         isPanning: true,
@@ -798,31 +906,67 @@ export function Canvas() {
       }
 
       if (clickedElement) {
+        let willBeSelected = false;
         if (e.shiftKey) {
           // Multi-select
           if (selectedElementIds.includes(clickedElement.id)) {
+            // Deselecting this element
             setSelectedElementIds(
               selectedElementIds.filter((id) => id !== clickedElement!.id)
             );
+            willBeSelected = false;
           } else {
+            // Adding to selection
             setSelectedElementIds([...selectedElementIds, clickedElement.id]);
+            willBeSelected = true;
           }
         } else {
           setSelectedElementIds([clickedElement.id]);
+          willBeSelected = true;
         }
-        // Start dragging
-        const bounds = getElementBounds(clickedElement);
-        setDrawingState({
-          ...drawingState,
-          isDragging: true,
-          dragOffset: {
-            x: worldPoint.x - bounds.minX,
-            y: worldPoint.y - bounds.minY,
-          },
-        });
+        
+        // Start dragging only if the clicked element will be selected
+        if (willBeSelected) {
+          const bounds = getElementBounds(clickedElement);
+          setDrawingState({
+            ...drawingState,
+            isDragging: true,
+            dragOffset: {
+              x: worldPoint.x - bounds.minX,
+              y: worldPoint.y - bounds.minY,
+            },
+          });
+        } else {
+          // Element was deselected, don't start dragging
+          setDrawingState({
+            ...drawingState,
+            isDragging: false,
+            dragOffset: null,
+          });
+        }
       } else {
-        // Deselect
-        setSelectedElementIds([]);
+        // Clicked on empty canvas
+        if (e.shiftKey) {
+          // Maintain current selection when Shift+clicking empty space
+          // Start box selection to add to selection
+          setDrawingState({
+            ...drawingState,
+            isBoxSelecting: true,
+            boxSelectionStart: worldPoint,
+            boxSelectionEnd: worldPoint,
+            boxSelectionShiftKey: true,
+          });
+        } else {
+          // Deselect and start box selection
+          setSelectedElementIds([]);
+          setDrawingState({
+            ...drawingState,
+            isBoxSelecting: true,
+            boxSelectionStart: worldPoint,
+            boxSelectionEnd: worldPoint,
+            boxSelectionShiftKey: false,
+          });
+        }
       }
     } else if (selectedTool === "text") {
       // Create text element on click
@@ -940,6 +1084,15 @@ export function Canvas() {
           });
         }
       }
+      return;
+    }
+
+    if (drawingState.isBoxSelecting && drawingState.boxSelectionStart) {
+      // Update box selection end point
+      setDrawingState({
+        ...drawingState,
+        boxSelectionEnd: worldPoint,
+      });
       return;
     }
 
@@ -1081,6 +1234,45 @@ export function Canvas() {
   };
 
   const handleMouseUp = (e?: React.MouseEvent) => {
+    // Handle box selection completion
+    if (drawingState.isBoxSelecting && drawingState.boxSelectionStart && drawingState.boxSelectionEnd) {
+      const boxMinX = Math.min(drawingState.boxSelectionStart.x, drawingState.boxSelectionEnd.x);
+      const boxMinY = Math.min(drawingState.boxSelectionStart.y, drawingState.boxSelectionEnd.y);
+      const boxMaxX = Math.max(drawingState.boxSelectionStart.x, drawingState.boxSelectionEnd.x);
+      const boxMaxY = Math.max(drawingState.boxSelectionStart.y, drawingState.boxSelectionEnd.y);
+
+      // Find all elements that intersect with the selection box
+      const intersectingElements = elements.filter((element) =>
+        elementIntersectsBox(element, boxMinX, boxMinY, boxMaxX, boxMaxY)
+      );
+
+      const intersectingIds = intersectingElements.map((el) => el.id);
+
+      if (drawingState.boxSelectionShiftKey) {
+        // Add to existing selection
+        const newSelection = [...selectedElementIds];
+        intersectingIds.forEach((id) => {
+          if (!newSelection.includes(id)) {
+            newSelection.push(id);
+          }
+        });
+        setSelectedElementIds(newSelection);
+      } else {
+        // Replace selection
+        setSelectedElementIds(intersectingIds);
+      }
+
+      // Reset box selection state
+      setDrawingState({
+        ...drawingState,
+        isBoxSelecting: false,
+        boxSelectionStart: null,
+        boxSelectionEnd: null,
+        boxSelectionShiftKey: false,
+      });
+      return;
+    }
+
     if (drawingState.isDrawing && drawingState.startPoint && selectedTool !== "selection" && selectedTool !== "text") {
       const { startPoint } = drawingState;
       let elementToAdd = drawingState.currentElement;
@@ -1274,6 +1466,10 @@ export function Canvas() {
         resizeStartBounds: null,
         isPanning: false,
         panStart: null,
+        isBoxSelecting: false,
+        boxSelectionStart: null,
+        boxSelectionEnd: null,
+        boxSelectionShiftKey: false,
       });
     } else {
       setDrawingState({
@@ -1283,6 +1479,10 @@ export function Canvas() {
         isResizing: false,
         isPanning: false,
         panStart: null,
+        isBoxSelecting: false,
+        boxSelectionStart: null,
+        boxSelectionEnd: null,
+        boxSelectionShiftKey: false,
       });
     }
   };

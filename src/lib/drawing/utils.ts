@@ -172,6 +172,23 @@ export function getBoundingBox(elements: DrawingElement[]): {
   };
 }
 
+export function elementIntersectsBox(
+  element: DrawingElement,
+  boxMinX: number,
+  boxMinY: number,
+  boxMaxX: number,
+  boxMaxY: number
+): boolean {
+  const bounds = getElementBounds(element);
+  
+  // AABB (Axis-Aligned Bounding Box) intersection check
+  // Two boxes intersect if they overlap on both axes
+  const intersectsX = bounds.maxX >= boxMinX && bounds.minX <= boxMaxX;
+  const intersectsY = bounds.maxY >= boxMinY && bounds.minY <= boxMaxY;
+  
+  return intersectsX && intersectsY;
+}
+
 export function rotatePoint(
   point: Point,
   centerX: number,
