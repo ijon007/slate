@@ -26,6 +26,8 @@ interface AppState {
   history: HistoryState;
   strokeColor: string;
   fillColor: string;
+  canvasBackgroundColorDark: string;
+  canvasBackgroundColorLight: string;
 
   // Notes state
   notes: Note[];
@@ -41,6 +43,8 @@ interface AppState {
   setElements: (elements: DrawingElement[]) => void;
   setStrokeColor: (color: string) => void;
   setFillColor: (color: string) => void;
+  setCanvasBackgroundColorDark: (color: string) => void;
+  setCanvasBackgroundColorLight: (color: string) => void;
 
   // Canvas actions
   setZoom: (zoom: number) => void;
@@ -80,6 +84,8 @@ export const useStore = create<AppState>()(
       },
       strokeColor: DEFAULT_STROKE_COLOR,
       fillColor: DEFAULT_FILL_COLOR,
+      canvasBackgroundColorDark: "#0a0a0a", // Original darker background
+      canvasBackgroundColorLight: "#ffffff", // Default light background
       notes: [],
 
       // Drawing actions
@@ -141,6 +147,14 @@ export const useStore = create<AppState>()(
 
       setFillColor: (color) => {
         set({ fillColor: color });
+      },
+
+      setCanvasBackgroundColorDark: (color) => {
+        set({ canvasBackgroundColorDark: color });
+      },
+
+      setCanvasBackgroundColorLight: (color) => {
+        set({ canvasBackgroundColorLight: color });
       },
 
       // Canvas actions

@@ -210,6 +210,8 @@ export function Canvas() {
     setZoom,
     strokeColor,
     fillColor,
+    canvasBackgroundColorDark,
+    canvasBackgroundColorLight,
   } = useStore();
 
   const [drawingState, setDrawingState] = useState<DrawingState>({
@@ -223,6 +225,15 @@ export function Canvas() {
     resizeStartBounds: null,
     isPanning: false,
     panStart: null,
+  });
+
+  // Track theme state to trigger redraws
+  const [isDarkTheme, setIsDarkTheme] = useState(() => {
+    if (typeof window !== "undefined") {
+      return document.documentElement.classList.contains("dark") ||
+             window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    return true;
   });
 
   // Initialize canvas and rough.js
@@ -617,6 +628,31 @@ export function Canvas() {
     [getScreenPoint]
   );
 
+  // Draw grid
+  const drawGrid = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
+    const gridSize = 20 * canvasState.zoom;
+    // Use theme-appropriate grid color
+    ctx.strokeStyle = isDarkTheme ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.1)";
+    ctx.lineWidth = 1;
+
+    const offsetX = (canvasState.offsetX * canvasState.zoom) % gridSize;
+    const offsetY = (canvasState.offsetY * canvasState.zoom) % gridSize;
+
+    for (let x = -offsetX; x < width; x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    }
+
+    for (let y = -offsetY; y < height; y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+  }, [canvasState.zoom, canvasState.offsetX, canvasState.offsetY, isDarkTheme]);
+
   // Main draw function
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -626,6 +662,13 @@ export function Canvas() {
     if (!ctx) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Use theme-appropriate background color
+    const backgroundColor = isDarkTheme ? canvasBackgroundColorDark : canvasBackgroundColorLight;
+
+    // Fill canvas background
+    ctx.fillStyle = backgroundColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Draw grid background
     drawGrid(ctx, canvas.width, canvas.height);
@@ -647,31 +690,45 @@ export function Canvas() {
         drawHandles(ctx, element);
       }
     });
-  }, [elements, selectedElementIds, drawingState.currentElement, drawElement, drawHandles]);
+  }, [elements, selectedElementIds, drawingState.currentElement, drawElement, drawHandles, canvasBackgroundColorDark, canvasBackgroundColorLight, isDarkTheme, drawGrid]);
 
-  // Draw grid
-  const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    const gridSize = 20 * canvasState.zoom;
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.1)";
-    ctx.lineWidth = 1;
+  // Watch for theme changes and update state
+  useEffect(() => {
+    const updateTheme = () => {
+      const isDark = document.documentElement.classList.contains("dark") ||
+                     (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      setIsDarkTheme(isDark);
+    };
 
-    const offsetX = (canvasState.offsetX * canvasState.zoom) % gridSize;
-    const offsetY = (canvasState.offsetY * canvasState.zoom) % gridSize;
+    const observer = new MutationObserver(() => {
+      updateTheme();
+    });
 
-    for (let x = -offsetX; x < width; x += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
-    }
+    // Observe changes to the classList of documentElement and body
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
 
-    for (let y = -offsetY; y < height; y += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
-    }
-  };
+    // Also listen to system theme changes
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleThemeChange = () => {
+      updateTheme();
+    };
+    mediaQuery.addEventListener('change', handleThemeChange);
+
+    // Initial check
+    updateTheme();
+
+    return () => {
+      observer.disconnect();
+      mediaQuery.removeEventListener('change', handleThemeChange);
+    };
+  }, []);
 
   // Render loop
   useEffect(() => {
