@@ -7,6 +7,11 @@ import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 
 export const Route = createFileRoute("/")({
   component: App,
+  validateSearch: (search: Record<string, unknown>) => {
+    return {
+      notes: (search.notes as string) || undefined,
+    };
+  },
 });
 
 function App() {

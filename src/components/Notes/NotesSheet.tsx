@@ -1,14 +1,35 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { NotesList } from "./NotesList";
 import { Notebook } from "@phosphor-icons/react";
+import { useNavigate } from "@tanstack/react-router";
+import { Route } from "@/routes/index";
 
 export function NotesSheet() {
-  const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+  const search = Route.useSearch();
+  const shouldOpen = search.notes === "open";
+  const [open, setOpen] = useState(shouldOpen);
+
+  useEffect(() => {
+    setOpen(shouldOpen);
+  }, [shouldOpen]);
+
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+    if (!newOpen) {
+      // Remove the notes=open param when closing
+      navigate({
+        to: "/",
+        search: { notes: undefined },
+        replace: true,
+      });
+    }
+  };
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetTrigger
         render={
           <Button

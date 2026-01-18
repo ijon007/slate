@@ -1,5 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Trash } from "@phosphor-icons/react";
 
 interface DeleteNoteDialogProps {
   open: boolean;
@@ -28,6 +29,7 @@ export function DeleteNoteDialog({ open, onOpenChange, onConfirm }: DeleteNoteDi
             variant="destructive"
             onClick={onConfirm}
           >
+            <Trash className="size-3" weight="bold" />
             Delete
           </Button>
         </DialogFooter>

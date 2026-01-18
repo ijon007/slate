@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { ArrowLeft, Eye, Pencil, Check } from "@phosphor-icons/react";
-import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
 
 interface NoteEditorProps {
@@ -76,7 +75,10 @@ export function NoteEditor({ noteId, onBack }: NoteEditorProps) {
     if (onBack) {
       onBack();
     } else {
-      navigate({ to: "/notes" });
+      navigate({ 
+        to: "/",
+        search: { notes: "open" },
+      });
     }
   };
 
