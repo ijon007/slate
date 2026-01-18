@@ -11,7 +11,7 @@ export function PresetButton({ selected, onClick, children, ariaLabel }: PresetB
   return (
     <button
       className={cn(
-        "size-10 rounded border-2 transition-all flex items-center justify-center",
+        "size-10 rounded-md border-2 transition-all flex items-center justify-center cursor-pointer",
         selected
           ? "border-primary bg-primary/10 scale-105"
           : "border-border hover:scale-105 hover:bg-muted"

@@ -105,7 +105,7 @@ export function CustomizationPanel() {
         <div className="text-xs font-medium">Stroke</div>
         
         {/* Stroke Color */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2">
           <label className="text-xs text-muted-foreground w-20 shrink-0">Colors:</label>
           <ColorGrid
             selectedColor={currentStrokeColor}
@@ -188,7 +188,7 @@ export function CustomizationPanel() {
             <div className="text-xs font-medium">Background</div>
             
             {/* Fill Color */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-2">
               <label className="text-xs text-muted-foreground w-20 shrink-0">Colors:</label>
               <ColorGrid
                 selectedColor={currentFillColor}
